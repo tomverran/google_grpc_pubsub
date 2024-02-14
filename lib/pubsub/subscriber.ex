@@ -84,7 +84,7 @@ defmodule Google.Pubsub.Subscriber do
 
       @impl true
       def handle_info(type, struct) do
-        Logger.debug("Google.Pubsub.Subscriber: handle_info: #{inspect(type)}")
+        Logger.warning("Google.Pubsub.Subscriber: handle_info: #{inspect(type)}")
         {:stop, :unknown, struct}
       end
 
