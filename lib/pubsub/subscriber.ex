@@ -44,6 +44,7 @@ defmodule Google.Pubsub.Subscriber do
         schedule_listen()
 
         {subscription_opts, request_opts} = Keyword.split(init_arg, [:subscription, :project])
+        Logger.metadata(subscriber_id: :crypto.strong_rand_bytes(6) |> Base.encode16())
 
         case Subscription.get(
                project: subscription_opts[:project],
