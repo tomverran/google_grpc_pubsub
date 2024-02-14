@@ -133,8 +133,8 @@ defmodule Google.Pubsub.Subscriber do
   @spec process_recv(Enumerable.t(), GRPC.Client.Stream.t(), Subscription.t(), function()) ::
           GRPC.Client.Stream.t()
   defp process_recv(recv, stream, subscription, handle_messages) do
-    Enum.reduce_while(recv, {stream, []}, fn
-      {:ok, %StreamingPullResponse{received_messages: received_messages}}, {stream, _last_ack} ->
+    Enum.reduce_while(recv, stream, fn
+      {:ok, %StreamingPullResponse{received_messages: received_messages}}, stream ->
         Logger.info("Got messages", subscription: subscription.name)
 
         ack_ids =
@@ -147,9 +147,9 @@ defmodule Google.Pubsub.Subscriber do
         Logger.info("Acked messages", subscription: subscription.name)
         {:cont, stream}
 
-      {:error, %GRPC.RPCError{message: message}}, state ->
+      {:error, %GRPC.RPCError{message: message}}, stream ->
         Logger.warning("GRPC error: #{inspect(message)}", subscription: subscription.name)
-        {:halt, state}
+        {:halt, stream}
     end)
   end
 
