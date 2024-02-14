@@ -16,7 +16,6 @@ defmodule Google.Pubsub.Subscriber do
 
   @callback handle_messages([Message.t()], Subscription.t()) :: [Message.t()]
 
-  @unavailable GRPC.Status.unavailable()
   @unknown GRPC.Status.unknown()
 
   defmacro __using__(_opts) do
@@ -97,6 +96,8 @@ defmodule Google.Pubsub.Subscriber do
 
   @spec create_stream(Subscription.t(), Keyword.t()) :: GRPC.Client.Stream.t()
   def create_stream(subscription, request_opts) do
+    Logger.info("Creating stream", subscription: subscription.name)
+
     request =
       StreamingPullRequest.new(
         subscription: subscription.name,
@@ -109,8 +110,8 @@ defmodule Google.Pubsub.Subscriber do
 
   @spec close_stream(GRPC.Client.Stream.t(), Subscription.t()) :: GRPC.Client.Stream.t()
   def close_stream(stream, subscription) do
+    Logger.info("Closing stream", subscription: subscription.name)
     request = StreamingPullRequest.new(subscription: subscription.name)
-
     GRPC.Stub.send_request(stream, request, end_stream: true)
   end
 
@@ -132,9 +133,9 @@ defmodule Google.Pubsub.Subscriber do
   @spec process_recv(Enumerable.t(), GRPC.Client.Stream.t(), Subscription.t(), function()) ::
           GRPC.Client.Stream.t()
   defp process_recv(recv, stream, subscription, handle_messages) do
-    Enum.reduce(recv, stream, fn
-      {:ok, %StreamingPullResponse{received_messages: received_messages}}, stream ->
-        Logger.info("I got some messages")
+    Enum.reduce_while(recv, {stream, []}, fn
+      {:ok, %StreamingPullResponse{received_messages: received_messages}}, {stream, _last_ack} ->
+        Logger.info("Got messages", subscription: subscription.name)
 
         ack_ids =
           received_messages
@@ -142,28 +143,19 @@ defmodule Google.Pubsub.Subscriber do
           |> handle_messages.(subscription)
           |> Enum.map(fn %Message{ack_id: ack_id} -> ack_id end)
 
-      {:error, %GRPC.RPCError{status: @unavailable}}, stream ->
-        stream
+        stream = ack(stream, ack_ids)
+        Logger.info("Acked messages", subscription: subscription.name)
+        {:cont, stream}
 
-      {:error, %GRPC.RPCError{status: @unknown, message: message} = error}, stream ->
-        if expected_error?(message) do
-          Logger.warning("I got #{inspect(message)} but am unconcerned")
-          stream
-        else
-          Logger.warning("I am surprised to have received #{inspect(error)}")
-          raise error
-        end
-
-      {:error, error}, _stream ->
-        Logger.warning("I am surprised to have received #{inspect(error)}")
-        raise error
+      {:error, %GRPC.RPCError{message: message}}, state ->
+        Logger.warning("GRPC error: #{inspect(message)}", subscription: subscription.name)
+        {:halt, state}
     end)
   end
 
   @spec ack(GRPC.Client.Stream.t(), [String.t()]) :: GRPC.Client.Stream.t()
   defp ack(stream, ack_ids) do
     request = StreamingPullRequest.new(ack_ids: ack_ids)
-
     GRPC.Stub.send_request(stream, request)
   end
 
