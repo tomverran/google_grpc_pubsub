@@ -1,5 +1,6 @@
 defmodule Google.Pubsub.Subscriber do
   alias Google.Pubsub.{Message, Subscription, Client}
+  require Logger
 
   alias Google.Pubsub.V1.{
     StreamingPullRequest,
