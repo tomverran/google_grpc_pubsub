@@ -134,13 +134,13 @@ defmodule Google.Pubsub.Subscriber do
   defp process_recv(recv, stream, subscription, handle_messages) do
     Enum.reduce(recv, stream, fn
       {:ok, %StreamingPullResponse{received_messages: received_messages}}, stream ->
+        Logger.info("I got some messages")
+
         ack_ids =
           received_messages
           |> Enum.map(&Message.new!/1)
           |> handle_messages.(subscription)
           |> Enum.map(fn %Message{ack_id: ack_id} -> ack_id end)
-
-        ack(stream, ack_ids)
 
       {:error, %GRPC.RPCError{status: @unavailable}}, stream ->
         stream
