@@ -145,9 +145,16 @@ defmodule Google.Pubsub.Subscriber do
         stream
 
       {:error, %GRPC.RPCError{status: @unknown, message: message} = error}, stream ->
-        if expected_error?(message), do: stream, else: raise(error)
+        if expected_error?(message) do
+          Logger.warning("I got #{inspect(message)} but am unconcerned")
+          stream
+        else
+          Logger.warning("I am surprised to have received #{inspect(error)}")
+          raise error
+        end
 
       {:error, error}, _stream ->
+        Logger.warning("I am surprised to have received #{inspect(error)}")
         raise error
     end)
   end
