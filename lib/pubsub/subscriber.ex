@@ -16,7 +16,7 @@ defmodule Google.Pubsub.Subscriber do
 
   @callback handle_messages([Message.t()], Subscription.t()) :: [Message.t()]
 
-  @unknown GRPC.Status.unknown()
+  @unavailable GRPC.Status.unavailable()
 
   defmacro __using__(_opts) do
     quote do
@@ -69,17 +69,19 @@ defmodule Google.Pubsub.Subscriber do
         |> Subscriber.close_stream(subscription)
 
         schedule_listen()
-
         {:noreply, state}
       end
 
       @impl true
-      def handle_info({:gun_error, _, _, {:stream_error, :no_error, _}}, struct) do
-        {:stop, :shutdown, struct}
+      def handle_info({:gun_error, _, _, {:stream_error, :no_error, _}}, state) do
+        Logger.warning("Stream closed, re-listening")
+        schedule_listen()
+        {:noreply, state}
       end
 
       @impl true
-      def handle_info({:gun_error, _, _, {:badstate, _}}, struct) do
+      def handle_info(res = {:gun_error, _, _, {:badstate, _}}, struct) do
+        Logger.warning("Error from gun: #{inspect(res)}, dying")
         {:stop, :shutdown, struct}
       end
 
@@ -134,8 +136,8 @@ defmodule Google.Pubsub.Subscriber do
   @spec process_recv(Enumerable.t(), GRPC.Client.Stream.t(), Subscription.t(), function()) ::
           GRPC.Client.Stream.t()
   defp process_recv(recv, stream, subscription, handle_messages) do
-    Enum.reduce_while(recv, stream, fn
-      {:ok, %StreamingPullResponse{received_messages: received_messages}}, stream ->
+    Enum.reduce_while(recv, {stream, []}, fn
+      {:ok, %StreamingPullResponse{received_messages: received_messages}}, {stream, _} ->
         Logger.info("Got messages", subscription: subscription.name)
 
         ack_ids =
@@ -144,14 +146,20 @@ defmodule Google.Pubsub.Subscriber do
           |> handle_messages.(subscription)
           |> Enum.map(fn %Message{ack_id: ack_id} -> ack_id end)
 
-        stream = ack(stream, ack_ids)
-        Logger.info("Acked messages", subscription: subscription.name)
-        {:cont, stream}
+        Logger.info("Acking messages", subscription: subscription.name)
+        {:cont, {ack(stream, ack_ids), ack_ids}}
 
-      {:error, %GRPC.RPCError{message: message}}, stream ->
+      # if we get an `unavailable` error and previously tried acking we retry
+      {:error, err = %GRPC.RPCError{status: @unavailable}}, {stream, ack_ids = [_ | _]} ->
+        Logger.info("Got #{err}, retrying ack of #{length(ack_ids)}")
+        {:cont, {ack(stream, ack_ids), ack_ids}}
+
+      # for all other errors we assume the stream is unrecoverable
+      {:error, %GRPC.RPCError{message: message}}, {stream, ack_ids} ->
         Logger.warning("GRPC error: #{inspect(message)}", subscription: subscription.name)
-        {:halt, stream}
+        {:halt, {stream, ack_ids}}
     end)
+    |> elem(0)
   end
 
   @spec ack(GRPC.Client.Stream.t(), [String.t()]) :: GRPC.Client.Stream.t()
