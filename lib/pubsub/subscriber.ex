@@ -146,7 +146,7 @@ defmodule Google.Pubsub.Subscriber do
 
       # if we get an `unavailable` error and previously tried acking we retry
       {:error, err = %GRPC.RPCError{status: @unavailable}}, {stream, ack_ids = [_ | _]} ->
-        Logger.info("Got #{err}, retrying ack of #{length(ack_ids)}")
+        Logger.info("Got #{inspect(err)}, retrying ack of #{length(ack_ids)}")
         {:cont, {ack(stream, ack_ids), ack_ids}}
 
       # for all other errors we assume the stream is unrecoverable
