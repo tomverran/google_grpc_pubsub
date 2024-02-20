@@ -74,21 +74,19 @@ defmodule Google.Pubsub.Subscriber do
 
       @impl true
       def handle_info({:gun_error, _, _, {:stream_error, :no_error, _}}, state) do
-        Logger.warning("Stream closed, re-listening")
-        schedule_listen()
-        {:noreply, state}
+        {:stop, :shutdown, state}
       end
 
       @impl true
-      def handle_info(res = {:gun_error, _, _, {:badstate, _}}, struct) do
+      def handle_info(res = {:gun_error, _, _, {:badstate, _}}, state) do
         Logger.warning("Error from gun: #{inspect(res)}, dying")
-        {:stop, :shutdown, struct}
+        {:stop, :shutdown, state}
       end
 
       @impl true
-      def handle_info(type, struct) do
+      def handle_info(type, state) do
         Logger.warning("Google.Pubsub.Subscriber: handle_info: #{inspect(type)}")
-        {:stop, :unknown, struct}
+        {:stop, :unknown, state}
       end
 
       defp schedule_listen() do
@@ -124,9 +122,6 @@ defmodule Google.Pubsub.Subscriber do
     case GRPC.Stub.recv(stream, timeout: :infinity) do
       {:ok, recv} ->
         process_recv(recv, stream, subscription, handle_messages)
-
-      {:error, %GRPC.RPCError{status: @unknown, message: message} = e} ->
-        if expected_error?(message), do: [], else: raise(e)
 
       {:error, error} ->
         raise error
@@ -169,9 +164,4 @@ defmodule Google.Pubsub.Subscriber do
   end
 
   defp client(), do: Application.get_env(:google_grpc_pubsub, :client, Client)
-
-  defp expected_error?(message) do
-    Regex.match?(~r/goaway.*max_age/, message) or
-      Regex.match?(~r/stream_error.*Stream reset by server/, message)
-  end
 end

@@ -1,5 +1,6 @@
 defmodule Google.Pubsub.Connection do
   use GenServer
+  require Logger
 
   def start_link(init) do
     GenServer.start_link(__MODULE__, init)
@@ -26,6 +27,7 @@ defmodule Google.Pubsub.Connection do
   @impl true
   def handle_info({:EXIT, _from, reason}, channel) do
     disconnect(channel)
+    Logger.info("EXIT: #{reason}")
     {:stop, reason, channel}
   end
 
